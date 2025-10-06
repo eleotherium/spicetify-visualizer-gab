@@ -1,74 +1,41 @@
 import React from "react";
 import App from "./app";
-import { SpotifyModules } from "./modules";
+import { RestMode } from "./components/RestMode";
 
-export async function createVisualizerWindow(rendererId: string) {
-	try {
-		let win = window.open();
-		if (!win) {
-			let errorMessage = "fallback PiP API is not available";
+type OpenOpts = { mode?: "rest" };
 
-			if ((window as any).documentPictureInPicture) {
-				if ((window as any).documentPictureInPicture.window) errorMessage = "cannot open another PiP window";
-				else
-					win = await (window as any).documentPictureInPicture.requestWindow().catch((e: any) => {
-						if (e) errorMessage = `${e}`;
-						else errorMessage = "unknown error";
-						return null;
-					});
-			}
+export function openVisualizerWindow(rendererId: "spectrum", opts?: OpenOpts) {
+  try {
+    const w = window.open("", "VisualizerWindow", "width=1280,height=720,noopener=yes");
+    if (!w) throw new Error("Popup bloqueado");
 
-			if (!win) {
-				Spicetify.showNotification(
-					<span>
-						Failed to open window: {errorMessage}. Try with devtools using{" "}
-						<code style={{ fontSize: "12px", background: "rgba(0 0 0 / 0.2)", borderRadius: "4px", padding: "2px" }}>
-							spicetify enable-devtools
-						</code>
-						.
-					</span>,
-					true
-				);
-				return;
-			}
-		}
+    const d = w.document;
+    d.title = "Visualizer";
+    d.body.innerHTML = "";
 
-		const popupDocument = win.document;
+    // Copiar estilos do host
+    Array.from(document.styleSheets).forEach(ss => {
+      try {
+        const node = (ss as any).ownerNode as HTMLLinkElement | HTMLStyleElement | null;
+        if (node) d.head.appendChild(node.cloneNode(true));
+      } catch {}
+    });
 
-		Array.from(document.styleSheets).forEach(s => {
-			if (!s.ownerNode || !("tagName" in s.ownerNode)) return;
-			const node = s.ownerNode;
+    const destructor = () => {
+      try {
+        Spicetify.ReactDOM.unmountComponentAtNode(d.body);
+      } catch {}
+    };
 
-			const clonedNode = popupDocument.importNode(node, true);
-			popupDocument.head.appendChild(clonedNode);
-		});
+    const node =
+      opts?.mode === "rest"
+        ? <RestMode onWindowDestroyed={destructor} />
+        : <App isSecondaryWindow onWindowDestroyed={destructor} initialRenderer={rendererId} />;
 
-		popupDocument.documentElement.className = document.documentElement.className;
-		popupDocument.body.className = document.body.className;
-
-		const StyleSheetManager = SpotifyModules.getStyleSheetManager() as any;
-		const destructor = Spicetify.ReactDOM.unmountComponentAtNode(popupDocument.body);
-		const visualizerNode = <App isSecondaryWindow={true} onWindowDestroyed={destructor} initialRenderer={rendererId} />;
-
-		if (StyleSheetManager) {
-			Spicetify.ReactDOM.render(
-				<StyleSheetManager target={popupDocument.head}>{visualizerNode}</StyleSheetManager>,
-				popupDocument.body
-			);
-		} else {
-			Spicetify.showNotification(
-				"[Visualizer] Could not find StyleSheetManager. Styles in popup window propably won't work.",
-				true
-			);
-
-			Spicetify.ReactDOM.render(visualizerNode, popupDocument.body);
-		}
-	} catch (e) {
-		console.error("[Visualizer]", "error opening popup window", e);
-
-		let error = "unknown error";
-		if (e) error = `${e}`;
-
-		Spicetify.showNotification(`Failed to open window: ${error}`, true);
-	}
+    Spicetify.ReactDOM.render(node, d.body);
+    w.addEventListener("beforeunload", destructor);
+  } catch (e) {
+    console.debug("[Visualizer] erro ao abrir janela", e);
+    Spicetify.showNotification?.("Não foi possível abrir o visualizador.");
+  }
 }
